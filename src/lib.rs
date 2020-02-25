@@ -1,4 +1,4 @@
-pub mod events;
 pub mod app;
-pub mod ui;
 pub mod app_events;
+pub mod events;
+pub mod ui;

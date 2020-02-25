@@ -1,4 +1,3 @@
-
 #[derive(PartialEq, Copy, Clone)]
 pub enum AppArea {
     Main,
@@ -39,11 +38,10 @@ impl AppArea {
             AppArea::Input => AppArea::INPUT,
             AppArea::CharacterSheet => AppArea::CHARACTER_SHEET,
             AppArea::Map => AppArea::MAP,
-            AppArea::Chat => AppArea::CHAT
+            AppArea::Chat => AppArea::CHAT,
         }
     }
 }
-
 
 pub struct App {
     pub focused_area: AppArea,
@@ -58,9 +56,7 @@ impl App {
         App {
             focused_area: AppArea::Input,
             input: String::new(),
-            messages: Vec::new()
+            messages: Vec::new(),
         }
     }
-
-
 }

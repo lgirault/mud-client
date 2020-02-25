@@ -7,7 +7,7 @@ use std::sync::{
 use std::thread;
 use std::time::Duration;
 
-use crossterm::event::{self as cevent, Event as CEvent, KeyEvent, KeyCode};
+use crossterm::event::{self as cevent, Event as CEvent, KeyCode, KeyEvent};
 
 pub enum Event<I> {
     Input(I),
@@ -52,40 +52,38 @@ impl Events {
             thread::spawn(move || {
                 loop {
                     match cevent::poll(config.tick_rate) {
-                        Ok(true) => {
-                            match cevent::read() {
-                                Ok(evt) => {
-                                    if let Err(_) = tx.send(Event::Input(evt)) {
-                                        return;
-                                    }
-                                    if !ignore_exit_key.load(Ordering::Relaxed)  {
-                                        if let CEvent::Key(key_event) = evt {
-                                            if key_event.code == config.exit_key {
-                                                return;
-                                            }
+                        Ok(true) => match cevent::read() {
+                            Ok(evt) => {
+                                if let Err(_) = tx.send(Event::Input(evt)) {
+                                    return;
+                                }
+                                if !ignore_exit_key.load(Ordering::Relaxed) {
+                                    if let CEvent::Key(key_event) = evt {
+                                        if key_event.code == config.exit_key {
+                                            return;
                                         }
                                     }
                                 }
-                                Err(err) => println!("{}", err),
                             }
+                            Err(err) => println!("{}", err),
                         },
                         Ok(false) => {}
                         Err(err) => println!("{}", err),
                     }
 
-//                for evt in stdin.keys() {
-//                    match evt {
-//                        Ok(key) => {
-//                            if let Err(_) = tx.send(Event::Input(key)) {
-//                                return;
-//                            }
-//                            if !ignore_exit_key.load(Ordering::Relaxed) && key == config.exit_key {
-//                                return;
-//                            }
-//                        }
-//                        Err(_) => {}
-//                    }
-//                }
+                    //                for evt in stdin.keys() {
+                    //                    match evt {
+                    //                        Ok(key) => {
+                    //                            if let Err(_) = tx.send(Event::Input(key)) {
+                    //                                return;
+                    //                            }
+                    //                            if !ignore_exit_key.load(Ordering::Relaxed) && key == config.exit_key {
+                    //                                return;
+                    //                            }
+                    //                        }
+                    //                        Err(_) => {}
+                    //                    }
+                    //                }
                 }
             })
         };

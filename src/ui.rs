@@ -1,5 +1,9 @@
 use std::io;
 
+mod app;
+mod app_events;
+mod events;
+
 use tui::backend::Backend;
 use tui::layout::{Constraint, Direction, Layout, Rect};
 use tui::style::{Color, Modifier, Style};
@@ -7,7 +11,7 @@ use tui::symbols::DOT;
 use tui::widgets::*;
 use tui::{Frame, Terminal};
 
-use crate::app::{App, AppArea};
+pub use app::{App, AppArea};
 
 pub fn draw_app<B: Backend>(terminal: &mut Terminal<B>, app: &App) -> Result<(), io::Error> {
     terminal.draw(|mut f| {

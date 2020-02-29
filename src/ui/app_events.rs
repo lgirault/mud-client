@@ -1,4 +1,5 @@
-use crate::app::{App, AppArea};
+
+use super::{App, AppArea};
 use crossterm::event::{KeyCode, KeyEvent};
 
 pub fn handle_key_event(app: &mut App, event: KeyEvent) {

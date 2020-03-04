@@ -1,4 +1,3 @@
-use std::io;
 use std::sync::mpsc;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
@@ -7,7 +6,7 @@ use std::sync::{
 use std::thread;
 use std::time::Duration;
 
-use crossterm::event::{self as cevent, Event as CEvent, KeyCode, KeyEvent};
+use crossterm::event::{self as cevent, Event as CEvent, KeyCode};
 
 pub enum Event<I> {
     Input(I),

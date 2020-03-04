@@ -4,9 +4,8 @@
     https://mudhalla.net/tintin/protocols/mtts/
 */
 use super::{CnxState, MudConfig};
-use std::collections::HashSet;
-use telnet::{Telnet, TelnetEvent, TelnetOption, NegotiationAction};
-use std::io::{self, Write, Read};
+use telnet::{Telnet, TelnetOption};
+use std::io;
 use bitflags::bitflags;
 
 bitflags! {
@@ -51,7 +50,7 @@ pub mod terminal_type {
 
 const IS: u8 = 0;
 
-pub fn handle_sub_negotiations(telnet: &mut Telnet,
+pub async fn handle_sub_negotiations(telnet: &mut Telnet,
                                config: &MudConfig,
                                cnx_state: &mut CnxState) -> io::Result<()> {
     //XXX only use in one branch
@@ -68,7 +67,7 @@ pub fn handle_sub_negotiations(telnet: &mut Telnet,
         Err(io::Error::new(io::ErrorKind::InvalidInput, "no more than 3"))
     })?;
 
-    telnet.try_subnegotiate(TelnetOption::TTYPE, &[&[IS], msg])?;
+    telnet.try_subnegotiate(TelnetOption::TTYPE, &[&[IS], msg]).await?;
 
 
     cnx_state.mtts_num_call = cnx_state.mtts_num_call + 1;

@@ -75,65 +75,182 @@ use telnet::{Telnet, TelnetOption};
 use std::io;
 use std::process;
 use log::{debug, warn, error};
-use mct::tn;
+use mct::mudnet::{self, CnxOutput};
 
 
-fn main() -> Result<(), failure::Error> {
-    stderrlog::new()
-        .module(module_path!())
-        .verbosity(4)
-        .init()?;
+// fn main() -> Result<(), failure::Error> {
+//
+//     log4rs::init_file("log4rs.yml", Default::default()).unwrap();
+//     // stderrlog::new()
+//     //     .module(module_path!())
+//     //     .verbosity(4)
+//     //     .init()?;
+//
+//     //let host = ("edge.xen.prgmr.com",4000);
+//     //RcSmxqq6&
+//     //aardwolf.org (23.111.136.202) port 4000
+//     //let host = "aardwolf.org:4000";
+//     let host = ("localhost", 9696); //currymud
+//     //let host = ("localhost", 27733);
+//     let mut telnet: Telnet = Telnet::connect(host, 256)
+//         .unwrap_or_else(|_| -> Telnet {
+//             error!("failed to establish connection with {:?}", host);
+//             process::exit(1);
+//         });
+//
+//
+//     debug!("Connected to the server!");
+//
+//     let config = mudnet::MudConfig::default();
+//     let mut cnx_state = mudnet::CnxState::new();
+//     let mut input = String::new();
+//
+//     loop {
+//         let (new_cnx_state, data) = mudnet::next(&mut telnet, &config, &cnx_state)?;
+//         cnx_state = new_cnx_state;
+//
+//         for d in data.iter() {
+//             match d {
+//                 CnxOutput::Data(str) =>
+//                     println!("{}", str),
+//                 CnxOutput::Msdp(msdp) =>
+//                     println!("{:?}", msdp)
+//             }
+//         }
+//
+//         println!("type command:");
+//         input.clear();
+//         io::stdin().read_line(&mut input)?;
+//         debug!("read {:?}", input);
+//         let trimmed = input.trim();
+//         if trimmed == ":q" {
+//             break;
+//         } else if trimmed == ":n" {
+//         } else if trimmed == ":ttype" {
+//             mudnet::negotiate(&mut telnet, &mut cnx_state, &TelnetOption::TTYPE)?;
+//         } else if trimmed == ":gmcp" {
+//             mudnet::negotiate(&mut telnet, &mut cnx_state, &TelnetOption::UnknownOption(mudnet::mud::options::GMCP))?;
+//         } else if trimmed == ":list" {
+//             mudnet::gmcp::list_command(& mut telnet)?;
+//         }
+//         // else if trimmed.len() > 0 {
+//         //     telnet.write(input.as_bytes())?;
+//         // } else {
+//         //     debug!("writing nothing !")
+//         // }
+//         else {
+//             telnet.write(input.as_bytes())?;
+//         }
+//
+//         debug!("loop end");
+//     }
+//
+//
+//     debug!("end of loop !");
+//
+// //    println!("{:?}", mct::APP_NAME.as_bytes());
+//
+//     // stream.shutdown();
+//     Ok(())
+// }
 
-    //aardwolf.org (23.111.136.202) port 4000
-    //let host = "aardwolf.org:4000";
-    let host = ("localhost", 9696); //currymud
-    //let host = ("localhost", 27733);
-    let mut telnet: Telnet = Telnet::connect(host, 256)
-        .unwrap_or_else(|_| -> Telnet {
-            error!("failed to establish connection with {:?}", host);
-            process::exit(1);
-        });
+use tokio::prelude::*;
+use tokio::task;
+use tokio::sync::mpsc::{self, Receiver, Sender, error::TryRecvError};
+use futures::Future;
 
+// enum Handle{
+//     Msg(String),
+//     Output(Vec<CnxOutput>)
+// }
 
-    debug!("Connected to the server!");
+fn telnet_handler(mut rx: Receiver<String>) -> impl Future<Output=io::Result<()>> {
+    async move {
+        println!("Start !");
+        //let host = ("edge.xen.prgmr.com",4000);
+        //RcSmxqq6&
+        //aardwolf.org (23.111.136.202) port 4000
+        //let host = "aardwolf.org:4000";
+        let host = ("localhost", 9696); //currymud
+        //let host = ("localhost", 27733);
+        let config = mudnet::MudConfig::default();
+        let mut cnx_state = mudnet::CnxState::new();
+        let mut telnet: Telnet = Telnet::connect(host, 256).await
+            .unwrap_or_else(|_| -> Telnet {
+                error!("failed to establish connection with {:?}", host);
+                process::exit(1);
+            });
+        debug!("Connected to the server!");
+        loop {
+            match rx.try_recv() {
+                Ok(msg) => {
+                    debug!("sending command {}", msg);
+                    telnet.write(msg.as_bytes()).await
+                }
+                Err(TryRecvError::Empty) => {
+                    debug!("try receive empty !");
+                    Ok::<usize, io::Error>(0)
+                }
+                Err(TryRecvError::Closed) => break,
+            }?;
 
-    let config = tn::MudConfig::default();
-    let mut cnx_state = tn::CnxState::new();
+            // match rx.recv().await {
+            //     Some(msg) =>{
+            //         debug!("sending command {}", msg);
+            //         telnet.write(msg.as_bytes()).await
+            //     },
+            //     None => Ok::<usize, io::Error>(0),
+            // }?;
+
+            let data = mudnet::next(&mut telnet, &config, &mut cnx_state).await?;
+
+            for d in data.iter() {
+                match d {
+                    CnxOutput::Data(str) =>
+                        println!("{}", str),
+                    CnxOutput::Msdp(msdp) =>
+                        println!("{:?}", msdp)
+                }
+            }
+            task::yield_now().await;
+        }
+        Ok(())
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), failure::Error> {
+    log4rs::init_file("log4rs.yml", Default::default()).unwrap();
+
+    let (mut tx, mut rx): (Sender<String>, Receiver<String>) = mpsc::channel(100);
+
+    tokio::spawn(telnet_handler(rx));
+
     let mut input = String::new();
-
     loop {
-        let (new_cnx_state, data) = tn::next(&mut telnet, &config, &cnx_state)?;
-        cnx_state = new_cnx_state;
-
-        println!("{}", data);
-
+        println!("type command:");
         input.clear();
         io::stdin().read_line(&mut input)?;
         debug!("read {:?}", input);
         let trimmed = input.trim();
         if trimmed == ":q" {
             break;
-        } else if trimmed == ":ttype" {
-            tn::negotiate(&mut telnet, &mut cnx_state, &TelnetOption::TTYPE)?;
-        } else if trimmed == ":gmcp" {
-            tn::negotiate(&mut telnet, &mut cnx_state, &TelnetOption::UnknownOption(tn::mud::options::GMCP))?;
-        } else if trimmed == ":list" {
-            tn::gmcp::list_command(& mut telnet)?;
         }
-        else if trimmed.len() > 0 {
-            telnet.write(input.as_bytes())?;
-        } else {
-            debug!("writing nothing !")
+        // else if trimmed == ":n" {} else if trimmed == ":ttype" {
+        //     mudnet::negotiate(&mut telnet, &mut cnx_state, &TelnetOption::TTYPE)?;
+        // } else if trimmed == ":gmcp" {
+        //     mudnet::negotiate(&mut telnet, &mut cnx_state, &TelnetOption::UnknownOption(mudnet::mud::options::GMCP))?;
+        // } else if trimmed == ":list" {
+        //     mudnet::gmcp::list_command(&mut telnet)?;
+        // }
+        // else if trimmed.len() > 0 {
+        //     telnet.write(input.as_bytes())?;
+        // } else {
+        //     debug!("writing nothing !")
+        // }
+        else {
+            tx.send(input.clone()).await;
         }
-
-        debug!("loop end");
     }
-
-
-    debug!("end of loop !");
-
-//    println!("{:?}", mct::APP_NAME.as_bytes());
-
-    // stream.shutdown();
     Ok(())
 }

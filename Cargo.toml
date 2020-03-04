@@ -13,10 +13,10 @@ failure = "0.1"
 telnet = "0.1"
 bitflags = "1.2.1"
 log = "0.4"
-stderrlog = "0.4"
+log4rs = "0.10.0"
 im = "14.2"
-#futures = { version = "0.3", optional = true }
-#tokio = { version = "0.2", features = ["full"] }
+futures = "0.3.0"
+tokio = { version = "0.2", features = ["full"] }
 
 [patch.crates-io]
 tui = { path = "../tui-rs" }

@@ -1,12 +1,16 @@
 use im::hashmap::HashMap;
 use telnet::{Telnet, TelnetEvent, TelnetOption, NegotiationAction};
-use std::io::{self, Write, Read};
+use std::io;
 use log::{debug, warn};
+use std::borrow::Borrow;
 
+mod lexer;
+mod msdp;
 mod mtts;
 pub mod gmcp;
 pub mod mud;
 
+use msdp::MsdpData;
 
 pub struct MudConfig {
     pub terminal_type: &'static str,
@@ -116,7 +120,12 @@ impl NegotiationState {
             !self.send_do
     }
 
-
+    fn is_active(&self) -> bool {
+        (self.received_will || self.received_do)
+            && self.send_do
+            && !self.received_wont
+            && !self.received_dont
+    }
 }
 
 #[derive(Debug)]
@@ -125,41 +134,36 @@ pub struct Chunk {
     pub data: String,
 }
 
-fn read_chunk(telnet: &mut Telnet) -> Result<Chunk, io::Error> {
+async fn read_chunk(telnet: &mut Telnet) -> Result<Chunk, io::Error> {
     let mut data = String::new();
     let mut negotiations: Vec<Negotiation> = Vec::new();
 
-    loop {
-        let event = telnet.read_nonblocking()?;
+    let event = telnet.read().await?;
 
-        match event {
-            TelnetEvent::Negotiation(act, opt) =>
-                negotiations.push(Negotiation::Negotiation(act, opt)),
+    match event {
+        TelnetEvent::Negotiation(act, opt) =>
+            negotiations.push(Negotiation::Negotiation(act, opt)),
 
-            TelnetEvent::Subnegotiation(opt, negoData) =>
-                negotiations.push(Negotiation::Subnegotiation(opt, negoData)),
-            TelnetEvent::Data(buffer) => {
-                for b in buffer.iter() {
-                    if b.is_ascii() {
-                        data.push(*b as char)
-                    } else {
-                        warn!("ignoring character '{}'", b);
-                    }
-                }
-            }
-            TelnetEvent::UnknownIAC(code) =>
-                return Err(io::Error::new(io::ErrorKind::InvalidInput,
-                                          format!("unknown IAC command {}", code))),
-            TelnetEvent::NoData =>
-                break,
-            TelnetEvent::TimedOut =>
-                return Err(io::Error::new(io::ErrorKind::TimedOut, "telnet event timed out")),
+        TelnetEvent::Subnegotiation(opt, negoData) =>
+            negotiations.push(Negotiation::Subnegotiation(opt, negoData)),
+        TelnetEvent::Data(buffer) => {
+            let d =
+                std::str::from_utf8(buffer.borrow()).map_err(|e| -> io::Error {
+                    io::Error::new(io::ErrorKind::InvalidInput, e.to_string())
+                })?;
+            data.push_str(d);
+        }
+        TelnetEvent::UnknownIAC(code) =>
+            return Err(io::Error::new(io::ErrorKind::InvalidInput,
+                                      format!("unknown IAC command {}", code))),
+        TelnetEvent::NoData =>
+            (),
+        TelnetEvent::TimedOut =>
+            return Err(io::Error::new(io::ErrorKind::TimedOut, "telnet event timed out")),
 
-            TelnetEvent::Error(msg) => {
-                warn!("Telnet error event : {}", msg);
-                //    return Err(io::Error::new(io::ErrorKind::Other, msg)),
-                break;
-            }
+        TelnetEvent::Error(msg) => {
+            warn!("Telnet error event : {}", msg);
+            //    return Err(io::Error::new(io::ErrorKind::Other, msg)),
         }
     }
 
@@ -170,17 +174,23 @@ fn read_chunk(telnet: &mut Telnet) -> Result<Chunk, io::Error> {
 }
 
 
-fn handle_sub_negotiations(telnet: &mut Telnet,
-                           config: &MudConfig,
-                           cnx_state: &mut CnxState,
-                           opt: &TelnetOption,
-                           data: &Box<[u8]>) -> io::Result<()> {
+async fn handle_sub_negotiations(telnet: &mut Telnet,
+                                 config: &MudConfig,
+                                 cnx_state: &mut CnxState,
+                                 output: &mut Vec<CnxOutput>,
+                                 opt: &TelnetOption,
+                                 data: &Box<[u8]>) -> io::Result<()> {
     match opt {
         TelnetOption::TTYPE =>
             {
                 debug!("handling sub negotiations for TTYPE");
-                mtts::handle_sub_negotiations(telnet, config, cnx_state)
+                mtts::handle_sub_negotiations(telnet, config, cnx_state).await
             }
+        TelnetOption::UnknownOption(mud::options::MSDP) => {
+            let msdp_data = msdp::parse_msdp(data.borrow())?;
+            output.push(CnxOutput::Msdp(msdp_data));
+            Ok(())
+        }
         _ => {
             warn!("ignoring subnegotiation for {:?}", (opt, data));
             Err(io::Error::new(io::ErrorKind::InvalidInput, format!("{:?}", *opt)))
@@ -188,56 +198,61 @@ fn handle_sub_negotiations(telnet: &mut Telnet,
     }
 }
 
-fn handle_negotiations(telnet: &mut Telnet,
-                       config: &MudConfig,
-                       cnx_state: &CnxState,
-                       negotiations: &Vec<Negotiation>) -> io::Result<CnxState> {
-    let mut state = cnx_state.clone();
-
+async fn handle_negotiations(telnet: &mut Telnet,
+                             config: &MudConfig,
+                             state: &mut CnxState,
+                             output: &mut Vec<CnxOutput>,
+                             negotiations: &Vec<Negotiation>) -> io::Result<()> {
     for n in negotiations.iter() {
         match n {
             Negotiation::Negotiation(action, opt)
             if *action == NegotiationAction::Do ||
                 *action == NegotiationAction::Will =>
-                negotiate_answer(telnet, &mut state, action, opt),
+                negotiate_answer(telnet, state, action, opt).await,
             Negotiation::Subnegotiation(option, data) =>
-                handle_sub_negotiations(telnet, config, &mut state, option, data),
+                handle_sub_negotiations(telnet, config, state, output, option, data).await,
             _ => Ok(())
         }?;
     }
 
-    Ok(state)
+    Ok(())
 }
 
 
 pub struct MudNet {
     telnet: Telnet,
     config: MudConfig,
+    state: CnxState,
 }
 
 impl MudNet {
-    pub fn next(&mut self,
-                cnx_state: &CnxState) -> io::Result<(CnxState, String)> {
-        next(&mut self.telnet, &self.config, cnx_state)
+    pub async fn next(&mut self) -> io::Result<Vec<CnxOutput>> {
+        next(&mut self.telnet, &self.config, &mut self.state).await
+    }
+
+    pub async fn negotiate(&mut self,
+                           state: &mut CnxState,
+                           opt: &TelnetOption) -> io::Result<()> {
+        negotiate(&mut self.telnet, state, opt).await
     }
 }
 
 
-pub fn negotiate(telnet: &mut Telnet,
-                 state: &mut CnxState,
-                 opt: &TelnetOption) -> io::Result<()> {
+pub async fn negotiate(telnet: &mut Telnet,
+                       state: &mut CnxState,
+                       opt: &TelnetOption) -> io::Result<()> {
     let mut nego_state = state.negotiation_state(opt);
-    do_negotiate(telnet, &mut nego_state)?;
+    do_negotiate(telnet, &mut nego_state).await?;
     state.add_negociated_option(nego_state);
     Ok(())
 }
 
-pub fn negotiate_answer(telnet: &mut Telnet,
-                        state: &mut CnxState,
-                        action: &NegotiationAction,
-                        opt: &TelnetOption) -> io::Result<()> {
+pub async fn negotiate_answer(telnet: &mut Telnet,
+                              state: &mut CnxState,
+                              action: &NegotiationAction,
+                              opt: &TelnetOption) -> io::Result<()> {
     let mut nego_state = state.negotiation_state(opt);
-    do_negotiate(telnet, &mut nego_state)?;
+    do_negotiate(telnet, &mut nego_state).await?;
 
     nego_state.received_do = nego_state.received_do || *action == NegotiationAction::Do;
     nego_state.received_will = nego_state.received_will || *action == NegotiationAction::Will;
@@ -246,35 +261,44 @@ pub fn negotiate_answer(telnet: &mut Telnet,
     Ok(())
 }
 
-fn do_negotiate(telnet: &mut Telnet,
-                nego_state: &mut NegotiationState) -> io::Result<()> {
+async fn do_negotiate(telnet: &mut Telnet,
+                      nego_state: &mut NegotiationState) -> io::Result<()> {
     if nego_state.shoud_negotiate() {
         debug!("negotiating Do for supported option {:?}", nego_state.option);
-        telnet.try_negotiate(NegotiationAction::Will, nego_state.option)?;
-        telnet.try_negotiate(NegotiationAction::Do, nego_state.option)?;
+        telnet.try_negotiate(NegotiationAction::Will, nego_state.option).await?;
+        telnet.try_negotiate(NegotiationAction::Do, nego_state.option).await?;
         nego_state.send_will = true;
         nego_state.send_do = true;
     } else {
         warn!("negotiating Wont for unsupported {:?}", nego_state.option);
-        telnet.try_negotiate(NegotiationAction::Wont, nego_state.option)?;
+        telnet.try_negotiate(NegotiationAction::Wont, nego_state.option).await?;
         nego_state.send_wont = true;
     }
 
     Ok(())
 }
 
-pub fn next(telnet: &mut Telnet,
-            config: &MudConfig,
-            cnx_state: &CnxState) -> io::Result<(CnxState, String)> {
-    let chunk = read_chunk(telnet)?;
+pub enum CnxOutput {
+    Data(String),
+    Msdp(MsdpData),
+}
+
+pub async fn next(telnet: &mut Telnet,
+                  config: &MudConfig,
+                  cnx_state: &mut CnxState) -> io::Result<Vec<CnxOutput>> {
+    let chunk = read_chunk(telnet).await?;
+
+    let mut output: Vec<CnxOutput> = Vec::new();
 
     debug!("{} negociations to process: ", chunk.negotiations.len());
     for n in chunk.negotiations.iter() {
         debug!("- {:?}", n);
     }
 
-    let new_cnx_state = handle_negotiations(telnet, &config, cnx_state, &chunk.negotiations)?;
+    handle_negotiations(telnet, &config, cnx_state, &mut output, &chunk.negotiations).await?;
 
-    Ok((new_cnx_state, chunk.data))
+    output.push(CnxOutput::Data(chunk.data));
+
+    Ok(output)
 }
 

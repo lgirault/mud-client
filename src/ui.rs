@@ -6,7 +6,7 @@ mod events;
 
 use tui::backend::Backend;
 use tui::layout::{Constraint, Direction, Layout, Rect};
-use tui::style::{Color, Modifier, Style};
+use tui::style::{Color, Style};
 use tui::symbols::DOT;
 use tui::widgets::*;
 use tui::{Frame, Terminal};

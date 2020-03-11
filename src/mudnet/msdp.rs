@@ -12,13 +12,13 @@ const MSDP_TABLE_CLOSE: u8 = 4;
 const MSDP_ARRAY_OPEN: u8 = 5;
 const MSDP_ARRAY_CLOSE: u8 = 6;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MsdpData {
     key: String,
     value: MsdpVal,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum MsdpVal {
     Value(String),
     Array(Vec<MsdpVal>),

@@ -1,3 +1,7 @@
+
+use crate::mudnet::CnxOutput;
+use log::debug;
+
 #[derive(PartialEq, Copy, Clone)]
 pub enum AppArea {
     Main,
@@ -48,7 +52,12 @@ pub struct App {
     /// Current value of the input box
     pub input: String,
     /// History of recorded messages
-    pub messages: Vec<String>,
+    pub messages: Vec<Message>,
+}
+
+pub enum Message {
+    UserInput(String),
+    Network(String)
 }
 
 impl App {
@@ -57,6 +66,17 @@ impl App {
             focused_area: AppArea::Input,
             input: String::new(),
             messages: Vec::new(),
+        }
+    }
+
+
+    pub fn apply_event(&mut self, event: CnxOutput){
+        match event {
+            CnxOutput::Data(msg) =>{
+                debug!("apply_event : {}", msg);
+                self.messages.push(Message::Network(msg))
+            },
+            CnxOutput::Msdp(_)=> (),
         }
     }
 }

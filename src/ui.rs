@@ -1,9 +1,10 @@
 use std::io;
 
-mod app;
-mod app_events;
-mod events;
+pub mod app;
+pub mod app_events;
+pub mod events;
 
+use app::Message;
 use tui::backend::Backend;
 use tui::layout::{Constraint, Direction, Layout, Rect};
 use tui::style::{Color, Style};
@@ -51,6 +52,7 @@ fn border_type(app: &App, area: AppArea) -> BorderType {
         return BorderType::Plain;
     }
 }
+
 fn border_style(app: &App, area: AppArea) -> Style {
     if app.focused_area == area {
         return Style::default().fg(Color::Cyan);
@@ -68,25 +70,51 @@ fn block(app: &App, area: AppArea) -> Block<'static> {
 }
 
 fn draw_main<B: Backend>(f: &mut Frame<B>, area: Rect, app: &App) {
-    block(app, AppArea::Main).render(f, area);
-}
-fn draw_input<B: Backend>(f: &mut Frame<B>, area: Rect, app: &App) {
-    Paragraph::new([Text::raw(&app.input)].iter())
+    let t : Vec<Text> =
+        app.messages.iter().map(|msg| -> Text {
+            let mut text:String;
+            match msg {
+                Message::UserInput(s) => {
+                    text = String::new();
+                    text.push_str("> ");
+                    text.push_str(s.as_str());
+                },
+                Message::Network(s) => {
+                    text = s.replace("\r\n", "\n"); //XXX TODO make if configurable
+                }
+             }
+            Text::raw(text)
+
+        }).collect();
+
+    let w = Paragraph::new(t.iter())
         .style(Style::default().fg(Color::Yellow))
-        .block(block(app, AppArea::Input))
-        .render(f, area);
+        .block(block(app, AppArea::Main));
+
+
+    f.render_widget(w, area);
+}
+
+fn draw_input<B: Backend>(f: &mut Frame<B>, area: Rect, app: &App) {
+    let t = [Text::raw(&app.input)];
+    let w = Paragraph::new(t.iter())
+        .style(Style::default().fg(Color::Yellow))
+        .block(block(app, AppArea::Input));
+    f.render_widget(w,area);
 }
 
 fn draw_map<B: Backend>(f: &mut Frame<B>, area: Rect, app: &App) {
-    block(app, AppArea::Map).render(f, area);
+    let w = block(app, AppArea::Map);
+    f.render_widget(w, area);
 }
 
 fn draw_chat<B: Backend>(f: &mut Frame<B>, area: Rect, app: &App) {
-    Tabs::default()
+    let w = Tabs::default()
         .block(block(app, AppArea::Chat))
         .titles(&["Tab1", "Tab2", "Tab3", "Tab4"])
         .style(Style::default().fg(Color::White))
         .highlight_style(Style::default().fg(Color::Yellow))
-        .divider(DOT)
-        .render(f, area);
+        .divider(DOT);
+
+    f.render_widget(w, area)
 }

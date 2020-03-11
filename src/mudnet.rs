@@ -138,7 +138,9 @@ async fn read_chunk(telnet: &mut Telnet) -> Result<Chunk, io::Error> {
     let mut data = String::new();
     let mut negotiations: Vec<Negotiation> = Vec::new();
 
+    debug!("|read_chunk 1|----------------------------------");
     let event = telnet.read().await?;
+    debug!("|read_chunk 2|----------------------------------");
 
     match event {
         TelnetEvent::Negotiation(act, opt) =>
@@ -278,6 +280,7 @@ async fn do_negotiate(telnet: &mut Telnet,
     Ok(())
 }
 
+#[derive(Debug, Clone)]
 pub enum CnxOutput {
     Data(String),
     Msdp(MsdpData),

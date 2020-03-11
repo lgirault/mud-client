@@ -1,25 +1,29 @@
-use std::sync::mpsc;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
-use std::thread;
 use std::time::Duration;
 
+use log::debug;
 use crossterm::event::{self as cevent, Event as CEvent, KeyCode};
+use tokio::prelude::*;
+use tokio::task;
+use tokio::sync::mpsc::{self, Receiver, Sender, error::RecvError, error::TryRecvError};
+use crate::mudnet::CnxOutput;
+use futures::Future;
 
-pub enum Event<I> {
+pub enum Event<I,N> {
     Input(I),
+    Network(N),
     Tick,
 }
 
 /// A small event handler that wrap termion input and tick events. Each event
 /// type is handled in its own thread and returned to a common `Receiver`
 pub struct Events {
-    rx: mpsc::Receiver<Event<CEvent>>,
-    input_handle: thread::JoinHandle<()>,
+    rx: Receiver<Event<CEvent, CnxOutput>>,
+    input_handle: task::JoinHandle<()>,
     ignore_exit_key: Arc<AtomicBool>,
-    tick_handle: thread::JoinHandle<()>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -32,28 +36,43 @@ impl Default for Config {
     fn default() -> Config {
         Config {
             exit_key: KeyCode::Char('q'),
-            tick_rate: Duration::from_millis(250),
+            tick_rate: Duration::from_millis(100),
         }
     }
 }
 
 impl Events {
-    pub fn new() -> Events {
-        Events::with_config(Config::default())
+    pub fn new(mut network: Receiver<CnxOutput>) -> Events {
+        Events::with_config(Config::default(), network)
     }
 
-    pub fn with_config(config: Config) -> Events {
-        let (tx, rx) = mpsc::channel();
+    pub fn with_config(config: Config,
+                       mut network: Receiver<CnxOutput>) -> Events {
+        let (mut tx, mut rx) = mpsc::channel(100);
         let ignore_exit_key = Arc::new(AtomicBool::new(false));
         let input_handle = {
-            let tx = tx.clone();
             let ignore_exit_key = ignore_exit_key.clone();
-            thread::spawn(move || {
+            tokio::spawn(async move {
                 loop {
+                    match network.try_recv() {
+                        Ok(msg) => {
+                            debug!("receive cnx: {:?}", msg);
+                            if let Err(_) = tx.send(Event::Network(msg)).await {
+                                return;
+                            }
+                        }
+                        Err(TryRecvError::Empty) => {
+                            //debug!("try receive cnx empty !");
+                            ()
+                        }
+                        Err(TryRecvError::Closed) => break,
+                    };
+
+
                     match cevent::poll(config.tick_rate) {
                         Ok(true) => match cevent::read() {
                             Ok(evt) => {
-                                if let Err(_) = tx.send(Event::Input(evt)) {
+                                if let Err(_) = tx.send(Event::Input(evt)).await {
                                     return;
                                 }
                                 if !ignore_exit_key.load(Ordering::Relaxed) {
@@ -69,30 +88,6 @@ impl Events {
                         Ok(false) => {}
                         Err(err) => println!("{}", err),
                     }
-
-                    //                for evt in stdin.keys() {
-                    //                    match evt {
-                    //                        Ok(key) => {
-                    //                            if let Err(_) = tx.send(Event::Input(key)) {
-                    //                                return;
-                    //                            }
-                    //                            if !ignore_exit_key.load(Ordering::Relaxed) && key == config.exit_key {
-                    //                                return;
-                    //                            }
-                    //                        }
-                    //                        Err(_) => {}
-                    //                    }
-                    //                }
-                }
-            })
-        };
-        let tick_handle = {
-            let tx = tx.clone();
-            thread::spawn(move || {
-                let tx = tx.clone();
-                loop {
-                    tx.send(Event::Tick).unwrap();
-                    thread::sleep(config.tick_rate);
                 }
             })
         };
@@ -100,12 +95,11 @@ impl Events {
             rx,
             ignore_exit_key,
             input_handle,
-            tick_handle,
         }
     }
 
-    pub fn next(&self) -> Result<Event<CEvent>, mpsc::RecvError> {
-        self.rx.recv()
+    pub async fn next(&mut self) -> Option<Event<CEvent,CnxOutput>> {
+        self.rx.recv().await
     }
 
     pub fn disable_exit_key(&mut self) {

@@ -1,8 +1,11 @@
 use im::hashmap::HashMap;
-use telnet::{Telnet, TelnetEvent, TelnetOption, NegotiationAction};
+use telnet::{Telnet, TelnetEvent, TelnetOption, NegotiationAction, TelnetWriter};
+use tokio::sync::mpsc::{self, Receiver, Sender, error::TryRecvError};
+use tokio::task;
 use std::io;
 use log::{debug, warn};
 use std::borrow::Borrow;
+use futures::Future;
 
 mod lexer;
 mod msdp;
@@ -54,7 +57,7 @@ impl CnxState {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Negotiation {
     Negotiation(NegotiationAction, TelnetOption),
     Subnegotiation(TelnetOption, Box<[u8]>),
@@ -134,13 +137,11 @@ pub struct Chunk {
     pub data: String,
 }
 
-async fn read_chunk(telnet: &mut Telnet) -> Result<Chunk, io::Error> {
+pub async fn read_chunk(telnet: &mut Telnet<'_>) -> Result<Chunk, io::Error> {
     let mut data = String::new();
     let mut negotiations: Vec<Negotiation> = Vec::new();
 
-    debug!("|read_chunk 1|----------------------------------");
     let event = telnet.read().await?;
-    debug!("|read_chunk 2|----------------------------------");
 
     match event {
         TelnetEvent::Negotiation(act, opt) =>
@@ -176,22 +177,21 @@ async fn read_chunk(telnet: &mut Telnet) -> Result<Chunk, io::Error> {
 }
 
 
-async fn handle_sub_negotiations(telnet: &mut Telnet,
+async fn handle_sub_negotiations(telnet: &mut TelnetWriter<'_>,
                                  config: &MudConfig,
                                  cnx_state: &mut CnxState,
-                                 output: &mut Vec<CnxOutput>,
                                  opt: &TelnetOption,
-                                 data: &Box<[u8]>) -> io::Result<()> {
+                                 data: &Box<[u8]>) -> io::Result<Option<CnxOutput>> {
     match opt {
         TelnetOption::TTYPE =>
             {
                 debug!("handling sub negotiations for TTYPE");
-                mtts::handle_sub_negotiations(telnet, config, cnx_state).await
+                mtts::handle_sub_negotiations(telnet, config, cnx_state).await;
+                Ok(None)
             }
         TelnetOption::UnknownOption(mud::options::MSDP) => {
             let msdp_data = msdp::parse_msdp(data.borrow())?;
-            output.push(CnxOutput::Msdp(msdp_data));
-            Ok(())
+            Ok(Some(CnxOutput::Msdp(msdp_data)))
         }
         _ => {
             warn!("ignoring subnegotiation for {:?}", (opt, data));
@@ -200,47 +200,44 @@ async fn handle_sub_negotiations(telnet: &mut Telnet,
     }
 }
 
-async fn handle_negotiations(telnet: &mut Telnet,
-                             config: &MudConfig,
-                             state: &mut CnxState,
-                             output: &mut Vec<CnxOutput>,
-                             negotiations: &Vec<Negotiation>) -> io::Result<()> {
-    for n in negotiations.iter() {
-        match n {
-            Negotiation::Negotiation(action, opt)
-            if *action == NegotiationAction::Do ||
-                *action == NegotiationAction::Will =>
-                negotiate_answer(telnet, state, action, opt).await,
-            Negotiation::Subnegotiation(option, data) =>
-                handle_sub_negotiations(telnet, config, state, output, option, data).await,
-            _ => Ok(())
-        }?;
-    }
-
-    Ok(())
-}
-
-
-pub struct MudNet {
-    telnet: Telnet,
-    config: MudConfig,
-    state: CnxState,
-}
-
-impl MudNet {
-    pub async fn next(&mut self) -> io::Result<Vec<CnxOutput>> {
-        next(&mut self.telnet, &self.config, &mut self.state).await
-    }
-
-    pub async fn negotiate(&mut self,
-                           state: &mut CnxState,
-                           opt: &TelnetOption) -> io::Result<()> {
-        negotiate(&mut self.telnet, state, opt).await
+pub async fn handle_negotiation(telnet: &mut TelnetWriter<'_>,
+                                config: &MudConfig,
+                                state: &mut CnxState,
+                                n: &Negotiation) -> io::Result<Option<CnxOutput>> {
+    match n {
+        Negotiation::Negotiation(action, opt)
+        if *action == NegotiationAction::Do ||
+            *action == NegotiationAction::Will => {
+            negotiate_answer(telnet, state, action, opt).await;
+            Ok(None)
+        }
+        Negotiation::Subnegotiation(option, data) =>
+            handle_sub_negotiations(telnet, config, state, option, data).await,
+        _ => Ok(None)
     }
 }
 
 
-pub async fn negotiate(telnet: &mut Telnet,
+// pub struct MudNet {
+//     telnet: Telnet,
+//     config: MudConfig,
+//     state: CnxState,
+// }
+//
+// impl MudNet {
+//     pub async fn next(&mut self) -> io::Result<Vec<CnxOutput>> {
+//         next(&mut self.telnet, &self.config, &mut self.state).await
+//     }
+//
+//     pub async fn negotiate(&mut self,
+//                            state: &mut CnxState,
+//                            opt: &TelnetOption) -> io::Result<()> {
+//         negotiate(&mut self.telnet, state, opt).await
+//     }
+// }
+
+
+pub async fn negotiate(telnet: &mut TelnetWriter<'_>,
                        state: &mut CnxState,
                        opt: &TelnetOption) -> io::Result<()> {
     let mut nego_state = state.negotiation_state(opt);
@@ -249,7 +246,7 @@ pub async fn negotiate(telnet: &mut Telnet,
     Ok(())
 }
 
-pub async fn negotiate_answer(telnet: &mut Telnet,
+pub async fn negotiate_answer(telnet: &mut TelnetWriter<'_>,
                               state: &mut CnxState,
                               action: &NegotiationAction,
                               opt: &TelnetOption) -> io::Result<()> {
@@ -263,7 +260,7 @@ pub async fn negotiate_answer(telnet: &mut Telnet,
     Ok(())
 }
 
-async fn do_negotiate(telnet: &mut Telnet,
+async fn do_negotiate(telnet: &mut TelnetWriter<'_>,
                       nego_state: &mut NegotiationState) -> io::Result<()> {
     if nego_state.shoud_negotiate() {
         debug!("negotiating Do for supported option {:?}", nego_state.option);
@@ -286,22 +283,85 @@ pub enum CnxOutput {
     Msdp(MsdpData),
 }
 
-pub async fn next(telnet: &mut Telnet,
-                  config: &MudConfig,
-                  cnx_state: &mut CnxState) -> io::Result<Vec<CnxOutput>> {
-    let chunk = read_chunk(telnet).await?;
 
-    let mut output: Vec<CnxOutput> = Vec::new();
+pub fn handler(mut tcp_stream: Box<tokio::net::TcpStream>,
+               mut command_receiver: Receiver<String>,
+               mut cnx_sender: Sender<CnxOutput>) -> impl Future<Output=io::Result<()>> {
+    async move {
+        let config = MudConfig::default();
+        let mut cnx_state = CnxState::new();
 
-    debug!("{} negociations to process: ", chunk.negotiations.len());
-    for n in chunk.negotiations.iter() {
-        debug!("- {:?}", n);
+        let (mut telnet, mut writer): (Telnet, TelnetWriter) =
+            Telnet::from_stream(tcp_stream.as_mut(), 256);
+
+        debug!("Connected to the server!");
+
+        let (mut nego_sender, mut nego_receiver): (Sender<Negotiation>, Receiver<Negotiation>) =
+            mpsc::channel(100);
+
+
+        let mut data_sender = cnx_sender.clone();
+
+        let user_input = async move {
+            loop {
+                match nego_receiver.try_recv() {
+                    Ok(nego) => {
+                        debug!("negotiating {:?}", nego);
+
+                        if let Some(output) = handle_negotiation(&mut writer, &config, &mut cnx_state, &nego).await? {
+                            cnx_sender.send(output).await.map_err(|e| {
+                                io::Error::new(io::ErrorKind::Other, e)
+                            })
+                        } else {
+                            Ok(())
+                        }
+                    }
+                    Err(TryRecvError::Empty) => {
+//                        debug!("try receive empty !");
+//                        Ok::<usize, io::Error>(0)
+                        Ok(())
+                    }
+                    Err(TryRecvError::Closed) => break,
+                };
+
+
+                match command_receiver.try_recv() {
+                    Ok(msg) => {
+                        debug!("sending {:?}", msg);
+                        writer.write(msg.as_bytes()).await?;
+                        Ok(())
+                    }
+                    Err(TryRecvError::Empty) => {
+                        //                      debug!("try receive empty !");
+                        //Ok::<usize, io::Error>(0)
+                        Ok::<(), io::Error>(())
+                    }
+                    Err(TryRecvError::Closed) => break,
+                }?;
+                task::yield_now().await;
+            }
+            Ok::<(), io::Error>(())
+        };
+
+        let network = async move {
+            loop {
+                let chunk = read_chunk(&mut telnet).await?;
+
+                data_sender.send(CnxOutput::Data(chunk.data)).await;
+
+                for n in chunk.negotiations.into_iter() {
+                    nego_sender.send(n.clone());
+                }
+
+                task::yield_now().await;
+            }
+            Ok::<(), io::Error>(())
+        };
+
+        tokio::join!(
+                user_input,
+                network
+            );
+        Ok::<(), io::Error>(())
     }
-
-    handle_negotiations(telnet, &config, cnx_state, &mut output, &chunk.negotiations).await?;
-
-    output.push(CnxOutput::Data(chunk.data));
-
-    Ok(output)
 }
-

@@ -4,7 +4,7 @@
     https://mudhalla.net/tintin/protocols/mtts/
 */
 use super::{CnxState, MudConfig};
-use telnet::{Telnet, TelnetOption};
+use telnet::{Telnet, TelnetOption, TelnetWriter};
 use std::io;
 use bitflags::bitflags;
 
@@ -50,18 +50,17 @@ pub mod terminal_type {
 
 const IS: u8 = 0;
 
-pub async fn handle_sub_negotiations(telnet: &mut Telnet,
+pub async fn handle_sub_negotiations(telnet: &mut TelnetWriter<'_>,
                                config: &MudConfig,
                                cnx_state: &mut CnxState) -> io::Result<()> {
-    //XXX only use in one branch
-    // but needed here for lifetime. Is there a better way ?
-    let feature_msg = format!("MTTS {}", config.features.bits);
+    let feature_msg: String;
 
     let msg = (if cnx_state.mtts_num_call == 0 {
         Ok(crate::APP_NAME.as_bytes())
     } else if cnx_state.mtts_num_call == 1 {
         Ok(config.terminal_type.as_bytes())
     } else if cnx_state.mtts_num_call == 2 {
+        feature_msg = format!("MTTS {}", config.features.bits);
         Ok(feature_msg.as_bytes())
     }else {
         Err(io::Error::new(io::ErrorKind::InvalidInput, "no more than 3"))

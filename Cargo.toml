@@ -15,8 +15,9 @@ bitflags = "1.2.1"
 log = "0.4"
 log4rs = "0.10.0"
 im = "14.2"
-futures = "0.3.0"
+futures = "0.3"
 tokio = { version = "0.2", features = ["full"] }
+termit-ansi = "0.2.1"
 
 [patch.crates-io]
 tui = { path = "../tui-rs" }

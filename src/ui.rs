@@ -47,7 +47,7 @@ pub fn draw_app<B: Backend>(terminal: &mut Terminal<B>, app: &App) -> Result<(),
 
 fn border_type(app: &App, area: AppArea) -> BorderType {
     if app.focused_area == area {
-        return BorderType::Fat;
+        return BorderType::Thick;
     } else {
         return BorderType::Plain;
     }
@@ -77,9 +77,10 @@ fn draw_main<B: Backend>(f: &mut Frame<B>, area: Rect, app: &App) {
                 Message::UserInput(s) => {
                     text = String::new();
                     text.push_str("> ");
-                    text.push_str(s.as_str());
+                    text.push_str(s.replace("\r\n", "\n").as_str());
                 },
                 Message::Network(s) => {
+
                     text = s.replace("\r\n", "\n"); //XXX TODO make if configurable
                 }
              }
@@ -88,7 +89,8 @@ fn draw_main<B: Backend>(f: &mut Frame<B>, area: Rect, app: &App) {
         }).collect();
 
     let w = Paragraph::new(t.iter())
-        .style(Style::default().fg(Color::Yellow))
+        .raw(true)
+        //.style(Style::default().fg(Color::Yellow))
         .block(block(app, AppArea::Main));
 
 

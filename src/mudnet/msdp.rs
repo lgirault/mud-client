@@ -1,4 +1,4 @@
-use telnet::{Telnet, TelnetOption};
+use telnet::{TelnetOption, TelnetWriter};
 use im::{HashSet, hashset};
 use std::io;
 
@@ -25,7 +25,7 @@ pub enum MsdpVal {
     Table(Vec<(String, MsdpVal)>),
 }
 
-pub async fn send_key_val(telnet: &mut Telnet,
+pub async fn send_key_val(telnet: &mut TelnetWriter<'_>,
                     k: &String, v: &String) -> io::Result<()> {
     let data: [&[u8]; 4] =
         [&[MSDP_VAR],

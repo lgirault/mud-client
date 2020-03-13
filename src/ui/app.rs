@@ -1,6 +1,5 @@
-
-use crate::mudnet::CnxOutput;
 use log::debug;
+use mudnet::CnxOutput;
 
 #[derive(PartialEq, Copy, Clone)]
 pub enum AppArea {
@@ -57,7 +56,7 @@ pub struct App {
 
 pub enum Message {
     UserInput(String),
-    Network(String)
+    Network(String),
 }
 
 impl App {
@@ -69,14 +68,13 @@ impl App {
         }
     }
 
-
-    pub fn apply_event(&mut self, event: CnxOutput){
+    pub fn apply_event(&mut self, event: CnxOutput) {
         match event {
-            CnxOutput::Data(msg) =>{
+            CnxOutput::Data(msg) => {
                 debug!("apply_event : {}", msg);
                 self.messages.push(Message::Network(msg))
-            },
-            CnxOutput::Msdp(_)=> (),
+            }
+            CnxOutput::Msdp(_) => (),
         }
     }
 }

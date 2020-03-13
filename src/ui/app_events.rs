@@ -8,10 +8,11 @@ pub type ShouldQuit = bool;
 
 pub const SHOULD_QUIT: bool = true;
 
-
-pub async fn handle_string(app: &mut App,
-                           command_sender: &mut Sender<String>,
-                           input: String) -> ShouldQuit {
+pub async fn handle_string(
+    app: &mut App,
+    command_sender: &mut Sender<String>,
+    input: String,
+) -> ShouldQuit {
     debug!("read {:?}", input);
 
     let trimmed = input.trim();
@@ -37,9 +38,11 @@ pub async fn handle_string(app: &mut App,
     // }
 }
 
-pub async fn handle_key_event(app: &mut App,
-                              command_sender: &mut Sender<String>,
-                              event: KeyEvent) -> ShouldQuit {
+pub async fn handle_key_event(
+    app: &mut App,
+    command_sender: &mut Sender<String>,
+    event: KeyEvent,
+) -> ShouldQuit {
     let KeyEvent { code, modifiers: _ } = event;
     app.focused_area == AppArea::Input && {
         match code {

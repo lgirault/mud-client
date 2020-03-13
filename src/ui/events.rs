@@ -4,15 +4,15 @@ use std::sync::{
 };
 use std::time::Duration;
 
-use log::debug;
 use crossterm::event::{self as cevent, Event as CEvent, KeyCode};
-use tokio::prelude::*;
-use tokio::task;
-use tokio::sync::mpsc::{self, Receiver, Sender, error::RecvError, error::TryRecvError};
-use crate::mudnet::CnxOutput;
 use futures::Future;
+use log::debug;
+use mudnet::CnxOutput;
+use tokio::prelude::*;
+use tokio::sync::mpsc::{self, error::RecvError, error::TryRecvError, Receiver, Sender};
+use tokio::task;
 
-pub enum Event<I,N> {
+pub enum Event<I, N> {
     Input(I),
     Network(N),
     Tick,
@@ -46,8 +46,7 @@ impl Events {
         Events::with_config(Config::default(), network)
     }
 
-    pub fn with_config(config: Config,
-                       mut network: Receiver<CnxOutput>) -> Events {
+    pub fn with_config(config: Config, mut network: Receiver<CnxOutput>) -> Events {
         let (mut tx, mut rx) = mpsc::channel(100);
         let ignore_exit_key = Arc::new(AtomicBool::new(false));
         let input_handle = {
@@ -67,7 +66,6 @@ impl Events {
                         }
                         Err(TryRecvError::Closed) => break,
                     };
-
 
                     match cevent::poll(config.tick_rate) {
                         Ok(true) => match cevent::read() {
@@ -98,7 +96,7 @@ impl Events {
         }
     }
 
-    pub async fn next(&mut self) -> Option<Event<CEvent,CnxOutput>> {
+    pub async fn next(&mut self) -> Option<Event<CEvent, CnxOutput>> {
         self.rx.recv().await
     }
 

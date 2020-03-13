@@ -1,5 +1,5 @@
 [package]
-name = "mct"
+name = "mudnet"
 version = "0.1.0"
 authors = ["Loïc Girault <loic.girault@gmail.com>"]
 edition = "2018"
@@ -7,19 +7,12 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-crossterm = { version = "0.14", features = ["event-stream"] }
-tui = { version = "0.8", default-features = false, features = ['crossterm'] }
-failure = "0.1"
 telnet = "0.1"
 bitflags = "1.2.1"
 log = "0.4"
-log4rs = "0.10.0"
 im = "14.2"
 futures = "0.3"
 tokio = { version = "0.2", features = ["full"] }
-termit-ansi = "0.2.1"
-mudnet = {path = "./mudnet", version = "0.1.0"}
 
 [patch.crates-io]
-tui = { path = "../tui-rs" }
-telnet = { path = "../telnet-rs" }
+telnet = { path = "../../telnet-rs" }

@@ -1,5 +1,3 @@
-
-
 pub struct Mud {
-    main: Vec<String>
+    main: Vec<String>,
 }

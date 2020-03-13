@@ -1,6 +1,4 @@
-pub mod ui;
 pub mod mud;
-pub mod mudnet;
+pub mod ui;
 
-pub const APP_NAME : &'static str = "mud-client";
-
+pub const APP_NAME: &'static str = "mud-client";

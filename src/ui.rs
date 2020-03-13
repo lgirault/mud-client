@@ -70,29 +70,29 @@ fn block(app: &App, area: AppArea) -> Block<'static> {
 }
 
 fn draw_main<B: Backend>(f: &mut Frame<B>, area: Rect, app: &App) {
-    let t : Vec<Text> =
-        app.messages.iter().map(|msg| -> Text {
-            let mut text:String;
+    let t: Vec<Text> = app
+        .messages
+        .iter()
+        .map(|msg| -> Text {
+            let mut text: String;
             match msg {
                 Message::UserInput(s) => {
                     text = String::new();
                     text.push_str("> ");
                     text.push_str(s.replace("\r\n", "\n").as_str());
-                },
+                }
                 Message::Network(s) => {
-
                     text = s.replace("\r\n", "\n"); //XXX TODO make if configurable
                 }
-             }
+            }
             Text::raw(text)
-
-        }).collect();
+        })
+        .collect();
 
     let w = Paragraph::new(t.iter())
         .raw(true)
         //.style(Style::default().fg(Color::Yellow))
         .block(block(app, AppArea::Main));
-
 
     f.render_widget(w, area);
 }
@@ -102,7 +102,7 @@ fn draw_input<B: Backend>(f: &mut Frame<B>, area: Rect, app: &App) {
     let w = Paragraph::new(t.iter())
         .style(Style::default().fg(Color::Yellow))
         .block(block(app, AppArea::Input));
-    f.render_widget(w,area);
+    f.render_widget(w, area);
 }
 
 fn draw_map<B: Backend>(f: &mut Frame<B>, area: Rect, app: &App) {

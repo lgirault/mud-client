@@ -4,9 +4,9 @@
     https://mudhalla.net/tintin/protocols/mtts/
 */
 use super::{CnxState, MudConfig};
-use telnet::{Telnet, TelnetOption, TelnetWriter};
-use std::io;
 use bitflags::bitflags;
+use std::io;
+use telnet::{Telnet, TelnetOption, TelnetWriter};
 
 bitflags! {
     pub struct Features: u16 {
@@ -25,16 +25,13 @@ bitflags! {
 
 #[cfg(test)]
 mod tests {
-
     use super::*;
 
     #[test]
     fn print_vector_bit() {
-        let feat:Features = Features::ANSI | Features::UTF8 | Features::_256COLORS;
+        let feat: Features = Features::ANSI | Features::UTF8 | Features::_256COLORS;
         assert_eq!(format!("{}", feat.bits), "13");
-
     }
-
 }
 
 pub mod terminal_type {
@@ -47,27 +44,32 @@ pub mod terminal_type {
     pub const XTERM: &'static str = "XTERM"; //	Terminal supports all VT100 and ANSI color codes, 256 colors, mouse tracking, and all commonly used xterm console codes.
 }
 
-
 const IS: u8 = 0;
 
-pub async fn handle_sub_negotiations(telnet: &mut TelnetWriter<'_>,
-                               config: &MudConfig,
-                               cnx_state: &mut CnxState) -> io::Result<()> {
+pub async fn handle_sub_negotiations(
+    telnet: &mut TelnetWriter<'_>,
+    config: &MudConfig,
+    cnx_state: &mut CnxState,
+) -> io::Result<()> {
     let feature_msg: String;
 
     let msg = (if cnx_state.mtts_num_call == 0 {
-        Ok(crate::APP_NAME.as_bytes())
+        Ok(config.client_name.as_bytes())
     } else if cnx_state.mtts_num_call == 1 {
         Ok(config.terminal_type.as_bytes())
     } else if cnx_state.mtts_num_call == 2 {
         feature_msg = format!("MTTS {}", config.features.bits);
         Ok(feature_msg.as_bytes())
-    }else {
-        Err(io::Error::new(io::ErrorKind::InvalidInput, "no more than 3"))
+    } else {
+        Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "no more than 3",
+        ))
     })?;
 
-    telnet.try_subnegotiate(TelnetOption::TTYPE, &[&[IS], msg]).await?;
-
+    telnet
+        .try_subnegotiate(TelnetOption::TTYPE, &[&[IS], msg])
+        .await?;
 
     cnx_state.mtts_num_call = cnx_state.mtts_num_call + 1;
     Ok(())

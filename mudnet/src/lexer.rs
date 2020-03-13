@@ -1,4 +1,4 @@
-use im::{HashSet};
+use im::HashSet;
 
 #[derive(Debug)]
 pub enum Token<'a> {
@@ -26,7 +26,6 @@ pub fn tokenize<'a, 'b>(data: &'a [u8], tokens: &'b HashSet<u8>) -> Vec<Token<'a
             }
             vec.push(Token::Delim(data[i]));
             parsing_state = ParsingState::Delim;
-
         } else if parsing_state == ParsingState::Delim {
             start_data = i;
             parsing_state = ParsingState::Data;
@@ -39,7 +38,6 @@ pub fn tokenize<'a, 'b>(data: &'a [u8], tokens: &'b HashSet<u8>) -> Vec<Token<'a
         vec.push(Token::Data(&data[start_data..data.len()]))
     }
 
-
     vec
 }
 
@@ -50,24 +48,21 @@ mod tests {
 
     fn check_delim(found: Option<&Token>, value: u8) {
         match found {
-            Some(Token::Delim(d)) =>
-                assert_eq!(*d, value),
-            _ => panic!("fail")
+            Some(Token::Delim(d)) => assert_eq!(*d, value),
+            _ => panic!("fail"),
         }
     }
 
     fn check_data(found: Option<&Token>, value: &[u8]) {
         match found {
-            Some(Token::Data(d)) =>
-                assert_eq!(**d, *value),
-            _ => panic!("fail")
+            Some(Token::Data(d)) => assert_eq!(**d, *value),
+            _ => panic!("fail"),
         }
     }
 
-
     #[test]
     fn start_end_with_delim() {
-        let delims: HashSet<u8> = hashset![1,2,3];
+        let delims: HashSet<u8> = hashset![1, 2, 3];
 
         let data: [u8; 12] = [1, 6, 7, 8, 2, 5, 9, 1, 11, 9, 7, 3];
 
@@ -87,10 +82,9 @@ mod tests {
         check_delim(res.get(6), 3);
     }
 
-
     #[test]
     fn two_delim_in_a_row() {
-        let delims: HashSet<u8> = hashset![1,2,3];
+        let delims: HashSet<u8> = hashset![1, 2, 3];
 
         let data: [u8; 11] = [6, 7, 8, 2, 1, 5, 9, 1, 11, 9, 7];
 

@@ -28,7 +28,6 @@ pub mod options {
     }
 }
 
-
 pub fn str_of_mud_option(b: u8) -> Result<&'static str, std::io::Error> {
     match b {
         options::MSLP => Ok(options::names::MSLP),
